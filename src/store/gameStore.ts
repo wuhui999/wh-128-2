@@ -8,10 +8,12 @@ import {
   Card,
   CardState,
   Operation,
+  OperationType,
   GameStats,
   SuitStats,
   RankStats,
   BombPossibility,
+  PlayerStats,
   SUITS,
   RANKS,
 } from '@/types/game';
@@ -27,6 +29,7 @@ function createInitialState(): GameState {
     initialized: false,
     levelCard: '2',
     playerCount: 4,
+    currentPlayer: 0,
     cards: [],
     operations: [],
     history: [],
@@ -42,6 +45,7 @@ function saveToHistory(state: GameState): GameState {
     operations: state.operations,
     levelCard: state.levelCard,
     playerCount: state.playerCount,
+    currentPlayer: state.currentPlayer,
     initialized: state.initialized,
     createdAt: state.createdAt,
   }));
@@ -156,6 +160,33 @@ function calculateStats(state: GameState): GameStats {
 
   const keyCardsRemaining = cards.filter((c) => !c.played && !c.inHand && (c.card.isJoker || c.card.rank === levelCard));
 
+  const players: PlayerStats[] = [];
+  const playedCardsByPlayer = new Map<number, CardState[]>();
+  state.operations.forEach((op) => {
+    if ((op.type === 'play' || op.type === 'playBatch') && op.playerIndex !== undefined) {
+      const playerIndex = op.playerIndex;
+      if (!playedCardsByPlayer.has(playerIndex)) {
+        playedCardsByPlayer.set(playerIndex, []);
+      }
+      op.cardIds.forEach((cardId) => {
+        const cardState = state.cards.find((c) => c.card.id === cardId);
+        if (cardState && cardState.played) {
+          playedCardsByPlayer.get(playerIndex)!.push(cardState);
+        }
+      });
+    }
+  });
+
+  for (let i = 0; i < state.playerCount; i++) {
+    const playedCount = playedCardsByPlayer.get(i)?.length || 0;
+    players.push({
+      playerIndex: i,
+      playedCount,
+      remainingCount: 0,
+      handCount: i === 0 ? totalInHand : 0,
+    });
+  }
+
   return {
     totalCards,
     totalPlayed,
@@ -168,6 +199,7 @@ function calculateStats(state: GameState): GameStats {
     ranks,
     bombPossibilities,
     keyCardsRemaining,
+    players,
   };
 }
 
@@ -198,6 +230,7 @@ export const useGameStore = create<GameStore>()(
             initialized: true,
             levelCard,
             playerCount,
+            currentPlayer: 0,
             cards,
             operations: [operation],
             history: [],
@@ -216,6 +249,9 @@ export const useGameStore = create<GameStore>()(
         const totalPlayed = state.cards.filter((c) => c.played).length;
         if (totalPlayed >= state.cards.length) return;
 
+        const currentPlayer = state.currentPlayer;
+        const nextPlayer = (currentPlayer + 1) % state.playerCount;
+
         set((state) => {
           const newState = produce(state, (draft) => {
             const card = draft.cards.find((c) => c.card.id === cardId);
@@ -227,10 +263,12 @@ export const useGameStore = create<GameStore>()(
                 id: generateId(),
                 type: 'play',
                 timestamp: Date.now(),
-                description: `出牌：${card.card.display}`,
+                description: `玩家${currentPlayer}出牌：${card.card.display}`,
                 cardIds: [cardId],
+                playerIndex: currentPlayer,
               };
               draft.operations.push(operation);
+              draft.currentPlayer = nextPlayer;
             }
           });
           return saveToHistory(newState);
@@ -242,6 +280,8 @@ export const useGameStore = create<GameStore>()(
         const cardState = state.cards.find((c) => c.card.id === cardId);
         if (!cardState || !cardState.played) return;
 
+        const currentPlayer = state.currentPlayer;
+
         set((state) => {
           const newState = produce(state, (draft) => {
             const card = draft.cards.find((c) => c.card.id === cardId);
@@ -252,8 +292,9 @@ export const useGameStore = create<GameStore>()(
                 id: generateId(),
                 type: 'unplay',
                 timestamp: Date.now(),
-                description: `撤销出牌：${card.card.display}`,
+                description: `玩家${currentPlayer}撤销出牌：${card.card.display}`,
                 cardIds: [cardId],
+                playerIndex: currentPlayer,
               };
               draft.operations.push(operation);
             }
@@ -285,6 +326,9 @@ export const useGameStore = create<GameStore>()(
           };
         }
 
+        const currentPlayer = state.currentPlayer;
+        const nextPlayer = (currentPlayer + 1) % state.playerCount;
+
         const cards = cardIds
           .map((id) => state.cards.find((c) => c.card.id === id)?.card)
           .filter(Boolean) as Card[];
@@ -307,16 +351,28 @@ export const useGameStore = create<GameStore>()(
               id: generateId(),
               type: 'playBatch',
               timestamp: Date.now(),
-              description: `批量出牌：${cardDisplay}${moreText}（${pattern.name}）`,
+              description: `玩家${currentPlayer}批量出牌：${cardDisplay}${moreText}（${pattern.name}）`,
               cardIds,
               pattern,
+              playerIndex: currentPlayer,
             };
             draft.operations.push(operation);
+            draft.currentPlayer = nextPlayer;
           });
           return saveToHistory(newState);
         });
 
         return { success: true };
+      },
+
+      setCurrentPlayer: (playerIndex: number) => {
+        set((state) => {
+          if (playerIndex < 0 || playerIndex >= state.playerCount) return state;
+          return {
+            ...state,
+            currentPlayer: playerIndex,
+          };
+        });
       },
 
       undo: (steps: number = 1) => {
@@ -330,6 +386,7 @@ export const useGameStore = create<GameStore>()(
             operations: historyState.operations,
             levelCard: historyState.levelCard,
             playerCount: historyState.playerCount,
+            currentPlayer: historyState.currentPlayer ?? 0,
             initialized: historyState.initialized,
             createdAt: historyState.createdAt,
             historyIndex: newIndex,
@@ -348,6 +405,7 @@ export const useGameStore = create<GameStore>()(
             operations: historyState.operations,
             levelCard: historyState.levelCard,
             playerCount: historyState.playerCount,
+            currentPlayer: historyState.currentPlayer ?? 0,
             initialized: historyState.initialized,
             createdAt: historyState.createdAt,
             historyIndex: newIndex,
@@ -375,14 +433,26 @@ export const useGameStore = create<GameStore>()(
         return calculateStats(get());
       },
 
+      getPlayedCardsByPlayer: (playerIndex: number) => {
+        const state = get();
+        const playedCardIds = new Set<string>();
+        state.operations.forEach((op) => {
+          if ((op.type === 'play' || op.type === 'playBatch') && op.playerIndex === playerIndex) {
+            op.cardIds.forEach((id) => playedCardIds.add(id));
+          }
+        });
+        return state.cards.filter((c) => c.played && playedCardIds.has(c.card.id));
+      },
+
       exportGame: () => {
         const state = get();
         const exportData = {
-          version: '1.0',
+          version: '1.1',
           exportedAt: Date.now(),
           game: {
             levelCard: state.levelCard,
             playerCount: state.playerCount,
+            currentPlayer: state.currentPlayer,
             createdAt: state.createdAt,
             cards: state.cards.map((c) => ({
               id: c.card.id,
@@ -391,7 +461,10 @@ export const useGameStore = create<GameStore>()(
               played: c.played,
               inHand: c.inHand,
             })),
-            operations: state.operations,
+            operations: state.operations.map((op) => ({
+              ...op,
+              playerIndex: op.playerIndex ?? 0,
+            })),
           },
           stats: calculateStats(state),
         };
@@ -405,8 +478,24 @@ export const useGameStore = create<GameStore>()(
             throw new Error('无效的对局数据');
           }
 
+          interface ImportedCard {
+            id: string;
+            suit: string;
+            rank: string;
+            played: boolean;
+            inHand: boolean;
+          }
+
+          interface ImportedOperation extends Partial<Operation> {
+            id: string;
+            type: OperationType;
+            timestamp: number;
+            description: string;
+            cardIds: string[];
+          }
+
           const deck = generateDeck(parsed.game.levelCard);
-          const cards: CardState[] = parsed.game.cards.map((c: any) => {
+          const cards: CardState[] = (parsed.game.cards as ImportedCard[]).map((c) => {
             const card = deck.find((d) => d.id === c.id);
             if (!card) {
               throw new Error(`找不到牌：${c.id}`);
@@ -418,13 +507,19 @@ export const useGameStore = create<GameStore>()(
             };
           });
 
+          const operations: Operation[] = ((parsed.game.operations || []) as ImportedOperation[]).map((op) => ({
+            ...op,
+            playerIndex: op.playerIndex ?? 0,
+          }));
+
           set((state) => ({
             ...state,
             initialized: true,
             levelCard: parsed.game.levelCard,
             playerCount: parsed.game.playerCount,
+            currentPlayer: parsed.game.currentPlayer ?? 0,
             cards,
-            operations: parsed.game.operations || [],
+            operations,
             history: [],
             historyIndex: -1,
             createdAt: parsed.game.createdAt || Date.now(),
@@ -441,6 +536,7 @@ export const useGameStore = create<GameStore>()(
         initialized: state.initialized,
         levelCard: state.levelCard,
         playerCount: state.playerCount,
+        currentPlayer: state.currentPlayer,
         cards: state.cards,
         operations: state.operations,
         history: state.history,

@@ -44,12 +44,14 @@ export interface Operation {
   description: string;
   cardIds: string[];
   pattern?: PatternInfo;
+  playerIndex?: number;
 }
 
 export interface GameState {
   initialized: boolean;
   levelCard: Rank;
   playerCount: 2 | 3 | 4;
+  currentPlayer: number;
   cards: CardState[];
   operations: Operation[];
   history: GameState[];
@@ -62,6 +64,7 @@ export interface GameStore extends GameState {
   playCard: (cardId: string) => void;
   playCards: (cardIds: string[]) => { success: boolean; error?: string };
   unplayCard: (cardId: string) => void;
+  setCurrentPlayer: (playerIndex: number) => void;
   undo: (steps?: number) => void;
   redo: () => void;
   resetGame: () => void;
@@ -69,6 +72,7 @@ export interface GameStore extends GameState {
   getPlayedCards: () => CardState[];
   getHandCards: () => CardState[];
   getStats: () => GameStats;
+  getPlayedCardsByPlayer: (playerIndex: number) => CardState[];
   exportGame: () => string;
   loadGame: (data: string) => void;
 }
@@ -97,6 +101,13 @@ export interface BombPossibility {
   description: string;
 }
 
+export interface PlayerStats {
+  playerIndex: number;
+  playedCount: number;
+  remainingCount: number;
+  handCount: number;
+}
+
 export interface GameStats {
   totalCards: number;
   totalPlayed: number;
@@ -116,6 +127,7 @@ export interface GameStats {
   ranks: RankStats[];
   bombPossibilities: BombPossibility[];
   keyCardsRemaining: CardState[];
+  players: PlayerStats[];
 }
 
 export const SUITS: Suit[] = ['spade', 'heart', 'club', 'diamond'];

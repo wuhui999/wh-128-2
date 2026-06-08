@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/store/gameStore';
 import CardButton from '@/components/CardButton';
@@ -18,18 +18,28 @@ import {
   X,
   Info,
   AlertCircle,
+  Users,
 } from 'lucide-react';
 
 type ViewMode = 'grid' | 'list';
 type FilterMode = 'all' | 'remaining' | 'played' | 'hand' | 'joker' | 'level';
+type PlayerFilter = number | 'all';
+
+const PLAYER_COLORS = [
+  { bg: 'bg-blue-500', text: 'text-blue-600', light: 'bg-blue-50', border: 'border-blue-200' },
+  { bg: 'bg-emerald-500', text: 'text-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-200' },
+  { bg: 'bg-amber-500', text: 'text-amber-600', light: 'bg-amber-50', border: 'border-amber-200' },
+  { bg: 'bg-purple-500', text: 'text-purple-600', light: 'bg-purple-50', border: 'border-purple-200' },
+];
 
 export default function Memorize() {
   const navigate = useNavigate();
-  const { cards, playCard, unplayCard, playCards, getStats, undo, historyIndex, history, levelCard } =
+  const { cards, playCard, unplayCard, playCards, getStats, undo, historyIndex, levelCard, currentPlayer, playerCount, setCurrentPlayer, getPlayedCardsByPlayer } =
     useGameStore();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [selectedSuit, setSelectedSuit] = useState<Suit | 'all'>('all');
+  const [playerFilter, setPlayerFilter] = useState<PlayerFilter>('all');
   const [batchMode, setBatchMode] = useState(false);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string>('');
@@ -69,6 +79,12 @@ export default function Memorize() {
         break;
     }
 
+    if (playerFilter !== 'all') {
+      const playerPlayedCards = getPlayedCardsByPlayer(playerFilter);
+      const playerPlayedIds = new Set(playerPlayedCards.map((c) => c.card.id));
+      result = result.filter((c) => playerPlayedIds.has(c.card.id));
+    }
+
     if (selectedSuit !== 'all') {
       result = result.filter((c) => !c.card.isJoker && c.card.suit === selectedSuit);
     }
@@ -91,7 +107,7 @@ export default function Memorize() {
     });
 
     return result;
-  }, [cards, filterMode, selectedSuit]);
+  }, [cards, filterMode, selectedSuit, playerFilter, getPlayedCardsByPlayer]);
 
   const handleCardClick = (cardId: string) => {
     setError('');
@@ -167,7 +183,7 @@ export default function Memorize() {
 
   const progress = stats.totalCards > 0 ? (stats.totalPlayed / (stats.totalCards - stats.totalInHand)) * 100 : 0;
 
-  const filters: { mode: FilterMode; label: string; icon?: any }[] = [
+  const filters: { mode: FilterMode; label: string; icon?: ComponentType<{ className?: string }> }[] = [
     { mode: 'all', label: '全部' },
     { mode: 'remaining', label: '剩余' },
     { mode: 'played', label: '已出' },
@@ -295,6 +311,25 @@ export default function Memorize() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl border border-slate-200">
+              <span className="text-sm text-slate-600">当前玩家：</span>
+              <div className="flex gap-1">
+                {Array.from({ length: playerCount }).map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentPlayer(i)}
+                    className={cn(
+                      'w-8 h-8 rounded-lg font-bold text-sm transition-all',
+                      currentPlayer === i
+                        ? `${PLAYER_COLORS[i].bg} text-white shadow-md`
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    )}
+                  >
+                    {i}
+                  </button>
+                ))}
+              </div>
+            </div>
             <button
               onClick={() => {
                 setBatchMode(!batchMode);
@@ -378,6 +413,35 @@ export default function Memorize() {
         </div>
 
         <div className="bg-slate-50 rounded-xl p-4 mb-6">
+          <h4 className="text-sm font-medium text-slate-700 mb-3">各玩家已出张数</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {stats.players.map((player) => (
+              <div
+                key={player.playerIndex}
+                className={cn(
+                  'bg-white rounded-lg p-3 text-center border-2 transition-all',
+                  currentPlayer === player.playerIndex
+                    ? `${PLAYER_COLORS[player.playerIndex].border} ${PLAYER_COLORS[player.playerIndex].light}`
+                    : 'border-slate-200'
+                )}
+              >
+                <div className={cn(
+                  'w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center text-white font-bold text-sm',
+                  PLAYER_COLORS[player.playerIndex].bg
+                )}>
+                  {player.playerIndex}
+                </div>
+                <div className="text-xl font-bold text-slate-800">{player.playedCount}</div>
+                <div className="text-xs text-slate-500">已出张数</div>
+                {player.playerIndex === 0 && player.handCount > 0 && (
+                  <div className="text-xs text-blue-600 mt-1">手牌 {player.handCount} 张</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-slate-50 rounded-xl p-4 mb-6">
           <h4 className="text-sm font-medium text-slate-700 mb-3">按花色统计</h4>
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {stats.suits.map((suit) => (
@@ -448,6 +512,44 @@ export default function Memorize() {
             })}
           </div>
         </div>
+
+        {filterMode === 'played' && (
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <Users className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-600">按玩家筛选：</span>
+            <button
+              onClick={() => setPlayerFilter('all')}
+              className={cn(
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                playerFilter === 'all'
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              )}
+            >
+              全部玩家
+            </button>
+            {stats.players.map((player) => (
+              <button
+                key={player.playerIndex}
+                onClick={() => setPlayerFilter(playerFilter === player.playerIndex ? 'all' : player.playerIndex)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1',
+                  playerFilter === player.playerIndex
+                    ? `${PLAYER_COLORS[player.playerIndex].bg} text-white`
+                    : `${PLAYER_COLORS[player.playerIndex].light} ${PLAYER_COLORS[player.playerIndex].text} hover:opacity-80`
+                )}
+              >
+                <span className={cn(
+                  'w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold',
+                  playerFilter === player.playerIndex ? 'bg-white/20' : 'bg-white/50'
+                )}>
+                  {player.playerIndex}
+                </span>
+                玩家{player.playerIndex} ({player.playedCount}张)
+              </button>
+            ))}
+          </div>
+        )}
 
         {filterMode !== 'joker' && (
           <div className="flex flex-wrap gap-2 mb-4">

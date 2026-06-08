@@ -17,11 +17,19 @@ import {
   ArrowLeft,
   ArrowRight,
   Layers,
+  User,
 } from 'lucide-react';
+
+const PLAYER_COLORS = [
+  { bg: 'bg-blue-500', text: 'text-blue-600', light: 'bg-blue-50', border: 'border-blue-200' },
+  { bg: 'bg-emerald-500', text: 'text-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-200' },
+  { bg: 'bg-amber-500', text: 'text-amber-600', light: 'bg-amber-50', border: 'border-amber-200' },
+  { bg: 'bg-purple-500', text: 'text-purple-600', light: 'bg-purple-50', border: 'border-purple-200' },
+];
 
 export default function UndoPage() {
   const navigate = useNavigate();
-  const { operations, history, historyIndex, undo, redo, cards, getStats } = useGameStore();
+  const { operations, history, historyIndex, undo, redo, cards, getStats, currentPlayer } = useGameStore();
   const [selectedStep, setSelectedStep] = useState<number | null>(null);
 
   const stats = getStats();
@@ -179,7 +187,7 @@ export default function UndoPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           <div className="bg-emerald-50 rounded-xl p-4 text-center border border-emerald-200">
             <div className="text-3xl font-bold text-emerald-600">{stats.totalPlayed}</div>
             <div className="text-xs text-emerald-700">已出牌数</div>
@@ -195,6 +203,45 @@ export default function UndoPage() {
           <div className="bg-purple-50 rounded-xl p-4 text-center border border-purple-200">
             <div className="text-3xl font-bold text-purple-600">{history.length}</div>
             <div className="text-xs text-purple-700">历史记录</div>
+          </div>
+          <div className={cn(
+            'rounded-xl p-4 text-center border-2',
+            PLAYER_COLORS[currentPlayer].light,
+            PLAYER_COLORS[currentPlayer].border
+          )}>
+            <div className={cn(
+              'w-10 h-10 rounded-full mx-auto mb-1 flex items-center justify-center text-white font-bold',
+              PLAYER_COLORS[currentPlayer].bg
+            )}>
+              {currentPlayer}
+            </div>
+            <div className={cn('text-lg font-bold', PLAYER_COLORS[currentPlayer].text)}>当前玩家</div>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 rounded-xl p-4 mb-6">
+          <h4 className="text-sm font-medium text-slate-700 mb-3">各玩家已出张数</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {stats.players.map((player) => (
+              <div
+                key={player.playerIndex}
+                className={cn(
+                  'bg-white rounded-lg p-3 text-center border-2 transition-all',
+                  currentPlayer === player.playerIndex
+                    ? `${PLAYER_COLORS[player.playerIndex].border} ${PLAYER_COLORS[player.playerIndex].light}`
+                    : 'border-slate-200'
+                )}
+              >
+                <div className={cn(
+                  'w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center text-white font-bold text-sm',
+                  PLAYER_COLORS[player.playerIndex].bg
+                )}>
+                  {player.playerIndex}
+                </div>
+                <div className="text-xl font-bold text-slate-800">{player.playedCount}</div>
+                <div className="text-xs text-slate-500">已出张数</div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -282,6 +329,16 @@ export default function UndoPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {op.playerIndex !== undefined && (op.type === 'play' || op.type === 'playBatch' || op.type === 'unplay') && (
+                        <span className={cn(
+                          'inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full font-medium',
+                          PLAYER_COLORS[op.playerIndex].light,
+                          PLAYER_COLORS[op.playerIndex].text
+                        )}>
+                          <User className="w-3 h-3" />
+                          玩家{op.playerIndex}
+                        </span>
+                      )}
                       <span className="font-medium text-slate-800 truncate">
                         {op.description}
                       </span>
